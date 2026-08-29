@@ -510,11 +510,13 @@ export function applyPatches(
 
 function pickMimeType(): string {
   const candidates = [
+    "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+    "video/mp4;codecs=avc1.42E01E",
+    "video/mp4",
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
     "video/webm;codecs=av1,opus",
     "video/webm",
-    "video/mp4",
   ];
   if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported) {
     for (const candidate of candidates) {

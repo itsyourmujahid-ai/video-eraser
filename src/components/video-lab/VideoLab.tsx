@@ -45,19 +45,31 @@ function useContainerWidth<T extends HTMLElement>(): [React.RefObject<T | null>,
 }
 
 const RESOLUTIONS: Array<{ value: ExportResolution; label: string }> = [
-  { value: "original", label: "Original" },
+  { value: "original", label: "Original · 100%" },
   { value: "1080p", label: "1080p" },
   { value: "720p", label: "720p" },
   { value: "480p", label: "480p" },
 ];
 
 const QUALITIES = [
-  { value: "high", label: "High", bitrate: 12_000_000 },
-  { value: "balanced", label: "Balanced", bitrate: 6_000_000 },
-  { value: "fast", label: "Fast", bitrate: 3_000_000 },
+  { value: "auto", label: "100% quality" },
+  { value: "high", label: "High" },
+  { value: "balanced", label: "Balanced" },
+  { value: "fast", label: "Fast" },
 ] as const;
 
 type Quality = (typeof QUALITIES)[number]["value"];
+
+function exportBitrate(width: number, height: number, quality: Quality): number {
+  const bits = width * height * 30;
+  if (quality === "auto")
+    return Math.min(60_000_000, Math.max(16_000_000, Math.round(bits * 0.2)));
+  if (quality === "high")
+    return Math.min(45_000_000, Math.max(10_000_000, Math.round(bits * 0.12)));
+  if (quality === "balanced")
+    return Math.min(26_000_000, Math.max(5_000_000, Math.round(bits * 0.07)));
+  return Math.min(14_000_000, Math.max(2_500_000, Math.round(bits * 0.04)));
+}
 type GestureMode = "idle" | "draw" | "move";
 
 function clamp01(v: number) {
@@ -89,8 +101,8 @@ export function VideoLab() {
   const [stage, setStage] = useState<"plates" | "export" | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [resolution, setResolution] = useState<ExportResolution>("720p");
-  const [quality, setQuality] = useState<Quality>("balanced");
+  const [resolution, setResolution] = useState<ExportResolution>("original");
+  const [quality, setQuality] = useState<Quality>("auto");
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
 
@@ -182,7 +194,7 @@ export function VideoLab() {
     setProgress(0);
     void (async () => {
       try {
-        const size = resolveExportSize(source, resolution);
+        const size = { width: source.width, height: source.height };
         const built = await buildCleanPlates(
           source,
           regions,
@@ -199,7 +211,7 @@ export function VideoLab() {
         setProgress(null);
       }
     })();
-  }, [source, regions, resolution, plates, processing]);
+  }, [source, regions, plates, processing]);
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
@@ -325,11 +337,15 @@ export function VideoLab() {
     setProgress(0);
     setStage("plates");
     try {
-      const qualityEntry = QUALITIES.find((q) => q.value === quality) ?? QUALITIES[1];
+      const size = resolveExportSize(source, resolution);
       const output = await eraseAndExport(
         source,
         regions,
-        { resolution, bitrate: qualityEntry.bitrate, featherPx: 10 },
+        {
+          resolution,
+          bitrate: exportBitrate(size.width, size.height, quality),
+          featherPx: 10,
+        },
         {
           onStage: setStage,
           onProgress: (pct) => setProgress(Math.round(pct * 100)),
