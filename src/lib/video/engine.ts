@@ -142,10 +142,122 @@ function seekTo(video: HTMLVideoElement, t: number): Promise<boolean> {
   });
 }
 
+const PLATE_MARGIN = 3;
+const STUCK_STDDEV = 6;
+
 /**
- * Builds a temporal-median "clean plate" for every marked region: it samples
- * frames across the clip and, per pixel, keeps the median colour. Static
- * logos/watermarks disappear while moving background content is preserved.
+ * Wavefront inpainting: fills "unknown" pixels by repeatedly averaging their
+ * known neighbours, marching inward from the boundary. Only runs once on the
+ * clean plate, so the per-frame export cost stays a single blit.
+ */
+function fillStuckPixels(
+  w: number,
+  h: number,
+  data: Uint8ClampedArray,
+  unknown: Uint8Array,
+): void {
+  const px = w * h;
+  const known = new Uint8Array(px);
+  const queued = new Uint8Array(px);
+  for (let i = 0; i < px; i++) if (!unknown[i]) known[i] = 1;
+
+  const neighbours = (i: number): number[] => {
+    const x = i % w;
+    const out: number[] = [];
+    if (i - w >= 0) out.push(i - w);
+    if (i + w < px) out.push(i + w);
+    if (x > 0) out.push(i - 1);
+    if (x < w - 1) out.push(i + 1);
+    return out;
+  };
+  const hasKnownNeighbour = (i: number) => neighbours(i).some((j) => known[j]);
+
+  let frontier: number[] = [];
+  for (let i = 0; i < px; i++) {
+    if (!known[i] && hasKnownNeighbour(i)) {
+      queued[i] = 1;
+      frontier.push(i);
+    }
+  }
+
+  while (frontier.length) {
+    const next: number[] = [];
+    for (const i of frontier) {
+      if (known[i]) continue;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let n = 0;
+      for (const j of neighbours(i)) {
+        if (known[j]) {
+          r += data[j * 4];
+          g += data[j * 4 + 1];
+          b += data[j * 4 + 2];
+          n++;
+        }
+      }
+      if (!n) continue;
+      data[i * 4] = r / n;
+      data[i * 4 + 1] = g / n;
+      data[i * 4 + 2] = b / n;
+      known[i] = 1;
+      for (const j of neighbours(i)) {
+        if (!known[j] && !queued[j] && hasKnownNeighbour(j)) {
+          queued[j] = 1;
+          next.push(j);
+        }
+      }
+    }
+    frontier = next;
+  }
+}
+
+function boxBlurRegion(
+  w: number,
+  h: number,
+  data: Uint8ClampedArray,
+  x0: number,
+  y0: number,
+  rw: number,
+  rh: number,
+  passes: number,
+): void {
+  const src = new Uint8ClampedArray(data);
+  for (let pass = 0; pass < passes; pass++) {
+    src.set(data);
+    for (let y = y0; y < y0 + rh; y++) {
+      for (let x = x0; x < x0 + rw; x++) {
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            const o = (yy * w + xx) * 4;
+            r += src[o];
+            g += src[o + 1];
+            b += src[o + 2];
+            n++;
+          }
+        }
+        const o = (y * w + x) * 4;
+        data[o] = r / n;
+        data[o + 1] = g / n;
+        data[o + 2] = b / n;
+      }
+    }
+  }
+}
+
+/**
+ * Builds a background "clean plate" for every marked region. It samples frames
+ * across the clip, keeps the per-pixel median colour, and detects pixels that
+ * never changed (the static logo / watermark). Those stuck pixels are
+ * re-synthesised by filling from the surrounding background — so the logo is
+ * replaced with the same background even when the footage is completely static.
  */
 export async function buildCleanPlates(
   source: SourceVideo,
@@ -157,6 +269,21 @@ export async function buildCleanPlates(
   const rectsRaw = regionsToRects(regions, width, height);
   const valid = rectsRaw.filter((r) => r.w > 0 && r.h > 0);
   if (!valid.length) return [];
+
+  const margin = PLATE_MARGIN;
+  const expanded = valid.map((r) => {
+    const ex = Math.max(0, r.x - margin);
+    const ey = Math.max(0, r.y - margin);
+    return {
+      ...r,
+      ex,
+      ey,
+      ew: Math.min(width, r.x + r.w + margin) - ex,
+      eh: Math.min(height, r.y + r.h + margin) - ey,
+      ix: r.x - ex,
+      iy: r.y - ey,
+    };
+  });
 
   const duration = Math.max(0.5, source.duration);
   const count = Math.max(12, Math.min(40, Math.round(duration * 8)));
@@ -179,16 +306,16 @@ export async function buildCleanPlates(
     video.addEventListener("error", onError, { once: true });
   });
 
-  const samples = valid.map((r) => new Uint8Array(count * r.w * r.h * 3));
-  const pxPerRegion = valid.map((r) => r.w * r.h);
+  const samples = expanded.map((r) => new Uint8Array(count * r.ew * r.eh * 3));
+  const pxPerRegion = expanded.map((r) => r.ew * r.eh);
 
   for (let s = 0; s < count; s++) {
     await seekTo(video, times[s]);
     ctx.drawImage(video, 0, 0, width, height);
-    for (let ri = 0; ri < valid.length; ri++) {
-      const r = valid[ri];
-      if (!r.w || !r.h) continue;
-      const img = ctx.getImageData(r.x, r.y, r.w, r.h);
+    for (let ri = 0; ri < expanded.length; ri++) {
+      const r = expanded[ri];
+      if (!r.ew || !r.eh) continue;
+      const img = ctx.getImageData(r.ex, r.ey, r.ew, r.eh);
       const d = img.data;
       const base = s * pxPerRegion[ri] * 3;
       let i = 0;
@@ -204,23 +331,69 @@ export async function buildCleanPlates(
 
   const patches: CleanPatch[] = [];
   const scratch = new Uint8Array(count);
-  for (let ri = 0; ri < valid.length; ri++) {
-    const r = valid[ri];
-    const out = new ImageData(r.w, r.h);
-    const pxCount = pxPerRegion[ri];
-    for (let p = 0; p < pxCount; p++) {
-      const pixBase = p * 3;
+  for (let ri = 0; ri < expanded.length; ri++) {
+    const e = expanded[ri];
+    const ep = pxPerRegion[ri];
+    const plate = new ImageData(e.ew, e.eh);
+    const pd = plate.data;
+    const meanF = new Float64Array(ep * 3);
+    const sqF = new Float64Array(ep * 3);
+
+    for (let p = 0; p < ep; p++) {
       for (let c = 0; c < 3; c++) {
+        const base = p * 3 + c;
+        let sum = 0;
+        let sq = 0;
         for (let s = 0; s < count; s++) {
-          scratch[s] = samples[ri][s * pxCount * 3 + pixBase + c];
+          const v = samples[ri][s * ep * 3 + base];
+          sum += v;
+          sq += v * v;
+          scratch[s] = v;
         }
+        meanF[base] = sum / count;
+        sqF[base] = sq / count;
         scratch.sort();
         const m = count >> 1;
-        out.data[p * 4 + c] =
-          count & 1 ? scratch[m] : (scratch[m - 1] + scratch[m]) >> 1;
+        pd[p * 4 + c] = count & 1 ? scratch[m] : (scratch[m - 1] + scratch[m]) >> 1;
+      }
+      pd[p * 4 + 3] = 255;
+    }
+
+    const unknown = new Uint8Array(e.ew * e.eh);
+    let anyStuck = false;
+    for (let py = e.iy; py < e.iy + e.h; py++) {
+      for (let px = e.ix; px < e.ix + e.w; px++) {
+        let maxStd = 0;
+        for (let c = 0; c < 3; c++) {
+          const base = (py * e.ew + px) * 3 + c;
+          const variance = sqF[base] - meanF[base] * meanF[base];
+          const sd = variance > 0 ? Math.sqrt(variance) : 0;
+          if (sd > maxStd) maxStd = sd;
+        }
+        if (maxStd < STUCK_STDDEV) {
+          unknown[py * e.ew + px] = 1;
+          anyStuck = true;
+        }
       }
     }
-    patches.push({ rect: r, data: out.data });
+
+    if (anyStuck) {
+      fillStuckPixels(e.ew, e.eh, pd, unknown);
+      boxBlurRegion(e.ew, e.eh, pd, e.ix, e.iy, e.w, e.h, 2);
+    }
+
+    const out = new ImageData(e.w, e.h);
+    for (let py = 0; py < e.h; py++) {
+      for (let px = 0; px < e.w; px++) {
+        const so = ((py + e.iy) * e.ew + (px + e.ix)) * 4;
+        const dof = (py * e.w + px) * 4;
+        out.data[dof] = pd[so];
+        out.data[dof + 1] = pd[so + 1];
+        out.data[dof + 2] = pd[so + 2];
+        out.data[dof + 3] = 255;
+      }
+    }
+    patches.push({ rect: valid[ri], data: out.data });
   }
   return patches;
 }

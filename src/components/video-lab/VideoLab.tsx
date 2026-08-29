@@ -6,14 +6,17 @@ import { EraserStage } from "@/components/video-lab/EraserStage";
 import { VideoDropzone } from "@/components/video-lab/VideoDropzone";
 import { ErrorBanner, ProgressOverlay } from "@/components/image-lab/primitives";
 import { Icon } from "@/components/ui/icon";
-import type { Accent, Section } from "@/lib/catalog";
 import { formatBytes } from "@/lib/image/engine";
+import { cyan, type Accent } from "@/lib/video/theme";
 import {
+  buildCleanPlates,
   eraseAndExport,
   formatDuration,
   loadSourceVideo,
+  resolveExportSize,
 } from "@/lib/video/engine";
 import type {
+  CleanPatch,
   EraseResult,
   ExportResolution,
   MarkRegion,
@@ -61,8 +64,8 @@ function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
 }
 
-export function VideoLab({ section }: { section: Section }) {
-  const accent: Accent = section.accent;
+export function VideoLab() {
+  const accent: Accent = cyan;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const gestureRef = useRef<{
@@ -79,8 +82,9 @@ export function VideoLab({ section }: { section: Section }) {
   const [regions, setRegions] = useState<MarkRegion[]>([]);
   const [draft, setDraft] = useState<MarkRegion | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [view, setView] = useState<"original" | "result">("original");
+  const [view, setView] = useState<"original" | "erased" | "result">("original");
   const [result, setResult] = useState<EraseResult | null>(null);
+  const [plates, setPlates] = useState<CleanPatch[] | null>(null);
   const [processing, setProcessing] = useState(false);
   const [stage, setStage] = useState<"plates" | "export" | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -135,6 +139,7 @@ export function VideoLab({ section }: { section: Section }) {
   const deleteRegion = useCallback((id: number) => {
     setRegions((prev) => prev.filter((r) => r.id !== id));
     setSelectedId((prev) => (prev === id ? null : prev));
+    setPlates(null);
   }, []);
 
   const updateRegion = useCallback((id: number, patch: Partial<MarkRegion>) => {
@@ -162,6 +167,40 @@ export function VideoLab({ section }: { section: Section }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedId, deleteRegion]);
 
+  const [appliedResolution, setAppliedResolution] = useState(resolution);
+  if (appliedResolution !== resolution) {
+    setAppliedResolution(resolution);
+    setPlates(null);
+  }
+
+  const showErased = useCallback(() => {
+    setView("erased");
+    if (!source || processing || plates) return;
+    setError(null);
+    setProcessing(true);
+    setStage("plates");
+    setProgress(0);
+    void (async () => {
+      try {
+        const size = resolveExportSize(source, resolution);
+        const built = await buildCleanPlates(
+          source,
+          regions,
+          size.width,
+          size.height,
+          (pct) => setProgress(Math.round(pct * 100)),
+        );
+        setPlates(built);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "The erased preview could not be built.");
+      } finally {
+        setProcessing(false);
+        setStage(null);
+        setProgress(null);
+      }
+    })();
+  }, [source, regions, resolution, plates, processing]);
+
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     if (file.size > MAX_FILE_MB * 1024 * 1024) {
@@ -183,6 +222,7 @@ export function VideoLab({ section }: { section: Section }) {
       setView("original");
       setCurrentTime(0);
       setPlaying(false);
+      setPlates(null);
       regionIdRef.current = 0;
       const loaded = await loadSourceVideo(file);
       setSource(loaded);
@@ -266,6 +306,7 @@ export function VideoLab({ section }: { section: Section }) {
         const id = ++regionIdRef.current;
         setRegions((prev) => [...prev, { id, x: d.x, y: d.y, width: d.width, height: d.height }]);
         setSelectedId(id);
+        setPlates(null);
       }
       setDraft(null);
     }
@@ -312,6 +353,7 @@ export function VideoLab({ section }: { section: Section }) {
     setRegions([]);
     setDraft(null);
     setSelectedId(null);
+    setPlates(null);
     gestureRef.current = { mode: "idle", id: null, dx: 0, dy: 0, x0: 0, y0: 0 };
     setView("original");
   }, []);
@@ -338,6 +380,7 @@ export function VideoLab({ section }: { section: Section }) {
     setCurrentTime(0);
     setPlaying(false);
     setError(null);
+    setPlates(null);
     regionIdRef.current = 0;
   }, [processing]);
 
@@ -393,13 +436,13 @@ export function VideoLab({ section }: { section: Section }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Design Studio · Functional
+              Video Eraser · 100% in-browser
             </p>
             <h1 className="font-display mt-0.5 text-2xl font-bold tracking-tight text-white">
               Video Lab
             </h1>
             <p className="mt-1 text-sm text-zinc-400">
-              100% browser-side processing — your clips never leave this device.
+              Erase logos, watermarks and burned-in text — your clips never leave this device.
             </p>
           </div>
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300">
@@ -431,11 +474,11 @@ export function VideoLab({ section }: { section: Section }) {
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
-                {(["original", "result"] as const).map((v) => (
+                {(["original", "erased", "result"] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
-                    onClick={() => setView(v)}
+                    onClick={v === "erased" ? showErased : () => setView(v)}
                     disabled={v === "result" && !result}
                     className={cn(
                       "rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors disabled:cursor-not-allowed disabled:opacity-40",
@@ -463,6 +506,8 @@ export function VideoLab({ section }: { section: Section }) {
                 selectedId={selectedId}
                 view={view}
                 resultUrl={result?.objectUrl ?? ""}
+                patches={plates ?? []}
+                featherPx={10}
                 accentColor="#22d3ee"
                 disabled={processing}
                 onPointerDown={handlePointerDown}
@@ -505,12 +550,14 @@ export function VideoLab({ section }: { section: Section }) {
             </div>
 
             <p className="mt-2 text-center text-[11px] text-zinc-600">
-              {view === "result"
-                ? "Switch to Original above to adjust regions and export again."
-                : regions.length === 0
-                  ? "Drag on the preview to draw a box over the logo or watermark."
-                  : "Drag a box to move it · drag outside to draw more · Del removes the selected box."}
-            </p>
+                {view === "result"
+                  ? "Switch back to Original or Erased to adjust regions and export again."
+                  : view === "erased"
+                    ? "Live preview — the logo is removed and the background re-filled. Switch to Original to tweak regions."
+                    : regions.length === 0
+                      ? "Drag on the preview to draw a box over the logo or watermark, then open Erased to check it."
+                      : "Drag a box to move it · drag outside to draw more · Del removes the selected box."}
+              </p>
           </section>
 
           <aside className="order-1 lg:order-2 lg:sticky lg:top-24 lg:self-start">
@@ -656,7 +703,8 @@ export function VideoLab({ section }: { section: Section }) {
                 <p className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 text-[11px] leading-relaxed text-zinc-500">
                   The app samples the clip, learns the background hidden behind
                   the logo, then re-synthesises it frame by frame on your
-                  device. Audio is preserved when your browser supports it.
+                  device — even when the footage behind the logo never moves.
+                  Audio is preserved when your browser supports it.
                 </p>
               </div>
 

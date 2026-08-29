@@ -10,21 +10,18 @@ export default function NotFound() {
           <Icon name="search" className="h-7 w-7 text-zinc-400" />
         </span>
         <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-          Lost in the vault
+          Video Eraser
         </p>
-        <h1 className="font-display mt-2 text-4xl font-bold text-white">
-          Page not found
-        </h1>
+        <h1 className="font-display mt-2 text-4xl font-bold text-white">Page not found</h1>
         <p className="mt-4 text-[15px] leading-relaxed text-zinc-400">
-          That path doesn&apos;t exist yet. The treasure map only knows eleven
-          sections — head back to the overview.
+          That path doesn&apos;t exist. Head back to the video lab.
         </p>
         <Link
           href="/"
-          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-600 px-5 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 transition-transform hover:scale-[1.03]"
+          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-cyan-400 to-sky-500 px-5 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-cyan-500/25 transition-transform hover:scale-[1.03]"
         >
-          <Icon name="home" className="h-4 w-4" />
-          Back to overview
+          <Icon name="video" className="h-4 w-4" />
+          Back to Video Lab
         </Link>
       </div>
     </div>

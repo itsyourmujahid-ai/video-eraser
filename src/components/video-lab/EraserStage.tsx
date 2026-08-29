@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import type { MarkRegion } from "@/lib/video/types";
+import { applyPatches } from "@/lib/video/engine";
+import type { CleanPatch, MarkRegion } from "@/lib/video/types";
 
 interface EraserStageProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   regions: MarkRegion[];
   draft: MarkRegion | null;
   selectedId: number | null;
-  view: "original" | "result";
+  view: "original" | "erased" | "result";
   resultUrl: string;
+  patches: CleanPatch[];
+  featherPx: number;
   accentColor: string;
   disabled: boolean;
   onPointerDown: (x: number, y: number) => void;
@@ -25,6 +28,8 @@ export function EraserStage({
   selectedId,
   view,
   resultUrl,
+  patches,
+  featherPx,
   accentColor,
   disabled,
   onPointerDown,
@@ -48,6 +53,10 @@ export function EraserStage({
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
     ctx.drawImage(video, 0, 0, w, h);
+
+    if (view === "erased" && patches.length) {
+      applyPatches(canvas, patches, featherPx);
+    }
 
     const drawBox = (r: MarkRegion, active: boolean, isDraft: boolean) => {
       const px = r.x * w;
@@ -87,10 +96,10 @@ export function EraserStage({
 
     for (const r of regions) drawBox(r, r.id === selectedId, false);
     if (draft) drawBox(draft, true, true);
-  }, [videoRef, regions, draft, selectedId, accentColor]);
+  }, [videoRef, regions, draft, selectedId, accentColor, view, patches, featherPx]);
 
   useEffect(() => {
-    if (view !== "original") return;
+    if (view === "result") return;
     let raf = 0;
     let last = -1;
     const loop = () => {
@@ -106,7 +115,7 @@ export function EraserStage({
   }, [view, videoRef, draw]);
 
   useEffect(() => {
-    if (view !== "original") return;
+    if (view === "result") return;
     const video = videoRef.current;
     if (!video) return;
     const onLoaded = () => draw();
@@ -119,7 +128,7 @@ export function EraserStage({
   }, [view, videoRef, draw]);
 
   useEffect(() => {
-    if (view === "original") draw();
+    if (view !== "result") draw();
   }, [regions, draft, selectedId, view, draw]);
 
   const toNormalized = (event: React.PointerEvent<HTMLCanvasElement>) => {

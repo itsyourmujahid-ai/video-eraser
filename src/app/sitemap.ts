@@ -1,7 +1,5 @@
 import type { MetadataRoute } from "next";
 
-import { sections } from "@/lib/catalog";
-
 export const dynamic = "force-static";
 
 const siteUrl =
@@ -17,11 +15,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
       lastModified,
     },
-    ...sections.map((section) => ({
-      url: `${siteUrl}/${section.slug}`,
-      changeFrequency: "monthly" as const,
-      priority: 0.8,
+    {
+      url: `${siteUrl}/video-lab`,
+      changeFrequency: "monthly",
+      priority: 1,
       lastModified,
-    })),
+    },
   ];
 }

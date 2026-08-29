@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
-import type { Accent } from "@/lib/catalog";
+import type { Accent } from "@/lib/video/theme";
 import { cn } from "@/lib/utils";
 
 export function VideoDropzone({

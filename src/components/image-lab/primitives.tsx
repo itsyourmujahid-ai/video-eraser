@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@/components/ui/icon";
-import type { Accent } from "@/lib/catalog";
+import type { Accent } from "@/lib/video/theme";
 import { cn } from "@/lib/utils";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

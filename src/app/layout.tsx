@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 
-import AppShell from "@/components/layout/AppShell";
+import SiteHeader from "@/components/layout/SiteHeader";
 import "./globals.css";
 
 const inter = Inter({
@@ -17,38 +17,38 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://marketing-os-zeta-sage.vercel.app";
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://itsyourmujahid-ai.github.io/video-eraser";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Marketing OS",
-    template: "%s · Marketing OS",
+    default: "Video Eraser",
+    template: "%s · Video Eraser",
   },
   description:
-    "Marketing OS — the operating system for modern marketing teams. Strategy, campaigns, content, leads, automation and analytics in one place.",
+    "Video Eraser — remove logos, watermarks and burned-in text from videos. 100% in your browser, nothing ever uploaded.",
   keywords: [
-    "marketing operating system",
-    "marketing automation",
-    "campaign management",
-    "content marketing",
-    "lead management",
-    "marketing analytics",
-    "saas",
-    "marketing os",
+    "video eraser",
+    "remove logo from video",
+    "remove watermark from video",
+    "remove text from video",
+    "video watermark remover",
+    "logo remover",
+    "video editor",
+    "browser video tool",
   ],
   openGraph: {
     type: "website",
-    siteName: "Marketing OS",
-    title: "Marketing OS",
+    siteName: "Video Eraser",
+    title: "Video Eraser",
     description:
-      "The operating system for modern marketing teams. Strategy, campaigns, content, leads, automation and analytics in one place.",
+      "Remove logos, watermarks and burned-in text from videos — 100% in your browser, nothing ever uploaded.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Marketing OS",
+    title: "Video Eraser",
     description:
-      "The operating system for modern marketing teams. Strategy, campaigns, content, leads, automation and analytics.",
+      "Remove logos, watermarks and burned-in text from videos — 100% in your browser, nothing ever uploaded.",
   },
 };
 
@@ -65,7 +65,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${spaceGrotesk.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <AppShell>{children}</AppShell>
+        <SiteHeader />
+        <main>{children}</main>
       </body>
     </html>
   );
